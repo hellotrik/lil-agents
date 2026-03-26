@@ -83,7 +83,7 @@ struct AgentMessage {
 protocol AgentSession: AnyObject {
     var isRunning: Bool { get }
     var isBusy: Bool { get }
-    var history: [AgentMessage] { get }
+    var history: [AgentMessage] { get set }
 
     var onText: ((String) -> Void)? { get set }
     var onError: ((String) -> Void)? { get set }
