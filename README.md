@@ -8,6 +8,8 @@ Tiny AI companions that live on your macOS dock.
 
 Supports **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, and **Google Gemini** CLIs — switch between them from the menubar.
 
+**[Download for macOS](https://lilagents.xyz)** · [Website](https://lilagents.xyz)
+
 ## features
 
 - Animated characters rendered from transparent HEVC video
@@ -27,7 +29,7 @@ Supports **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, and **Google Gem
 - macOS Sonoma (14.0+) — including Sequoia (15.x)
 - **Universal binary** — runs natively on both Apple Silicon and Intel Macs
 - At least one supported CLI installed:
-  - [Claude Code](https://claude.ai/download)
+  - [Claude Code](https://claude.ai/download) — `curl -fsSL https://claude.ai/install.sh | sh`
   - [OpenAI Codex](https://github.com/openai/codex) — `npm install -g @openai/codex`
   - [GitHub Copilot](https://github.com/github/copilot-cli) — `brew install copilot-cli`
   - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) — `npm install -g @google/gemini-cli`
