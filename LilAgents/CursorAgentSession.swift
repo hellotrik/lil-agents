@@ -64,7 +64,6 @@ final class CursorAgentSession: AgentSession {
         proc.arguments = [
             "--print",
             "--output-format", "stream-json",
-            "--stream-partial-output",
             "--trust",
             "--yolo",
             "--workspace", FileManager.default.homeDirectoryForCurrentUser.path,
@@ -217,13 +216,22 @@ final class CursorAgentSession: AgentSession {
 
     private func emitAssistantDelta(_ full: String) {
         if full == emittedAssistantPrefix { return }
+        let trimNew = full.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimPrev = emittedAssistantPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimNew.isEmpty && trimNew == trimPrev { return }
+
         if full.hasPrefix(emittedAssistantPrefix) {
             let suffix = String(full.dropFirst(emittedAssistantPrefix.count))
             if !suffix.isEmpty {
                 onText?(suffix)
             }
             emittedAssistantPrefix = full
-        } else {
+            return
+        }
+        if !emittedAssistantPrefix.isEmpty, emittedAssistantPrefix.hasPrefix(full) {
+            return
+        }
+        if emittedAssistantPrefix.isEmpty {
             onText?(full)
             emittedAssistantPrefix = full
         }

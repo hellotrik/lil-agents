@@ -146,6 +146,23 @@ class TerminalView: NSView {
         addSubview(inputField)
     }
 
+    /// Re-applies `theme` fonts after `PopoverTheme.customFontSize` changes.
+    func refreshFontsFromTheme() {
+        let t = theme
+        textView.font = t.font
+        textView.textColor = t.textPrimary
+        if let cell = inputField.cell as? PaddedTextFieldCell {
+            cell.font = t.font
+            cell.textColor = t.textPrimary
+            cell.placeholderAttributedString = NSAttributedString(
+                string: AgentProvider.current.inputPlaceholder,
+                attributes: [.font: t.font, .foregroundColor: t.textDim]
+            )
+        }
+        inputField.needsDisplay = true
+        textView.needsDisplay = true
+    }
+
     // MARK: - Input
 
     @objc private func inputSubmitted() {

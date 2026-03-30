@@ -7,6 +7,8 @@ class KeyableWindow: NSWindow {
 
 class CharacterContentView: NSView {
     weak var character: WalkerCharacter?
+    private var dragLastScreen: NSPoint?
+    private var didDrag = false
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let localPoint = convert(point, from: superview)
@@ -55,6 +57,32 @@ class CharacterContentView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        dragLastScreen = NSEvent.mouseLocation
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let p = NSEvent.mouseLocation
+        guard let last = dragLastScreen else {
+            dragLastScreen = p
+            return
+        }
+        let dx = p.x - last.x
+        let dy = p.y - last.y
+        dragLastScreen = p
+        if dx != 0 || dy != 0 {
+            didDrag = true
+            character?.userDragOffsetX += dx
+            character?.userDragOffsetY += dy
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragLastScreen = nil
+        if didDrag {
+            didDrag = false
+            return
+        }
         character?.handleClick()
     }
 }

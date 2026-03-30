@@ -167,7 +167,21 @@ struct PopoverTheme {
         }
     }
     static var customFontName: String? = ".AppleSystemUIFontRounded"
-    static var customFontSize: CGFloat = 13
+
+    private static let fontSizeKey = "terminalCustomFontSize"
+
+    /// Terminal body font size (persisted). Midnight theme ignores this via `withCustomFont`.
+    static var customFontSize: CGFloat {
+        get {
+            let v = UserDefaults.standard.object(forKey: fontSizeKey)
+            if let d = v as? Double, d > 0 { return CGFloat(d) }
+            return 13
+        }
+        set {
+            let clamped = min(22, max(9, newValue))
+            UserDefaults.standard.set(Double(clamped), forKey: fontSizeKey)
+        }
+    }
 
     // MARK: - Theme Modifiers
 

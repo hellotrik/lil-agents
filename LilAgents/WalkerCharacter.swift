@@ -55,6 +55,9 @@ class WalkerCharacter {
     var isAgentBusy: Bool { session?.isBusy ?? false }
     var thinkingBubbleWindow: NSWindow?
     private(set) var isManuallyVisible = true
+    /// Screen-space offset from automatic dock position (user drag).
+    var userDragOffsetX: CGFloat = 0
+    var userDragOffsetY: CGFloat = 0
     private var environmentHiddenAt: CFTimeInterval?
     private var wasPopoverVisibleBeforeEnvironmentHide = false
     private var wasBubbleVisibleBeforeEnvironmentHide = false
@@ -349,7 +352,7 @@ class WalkerCharacter {
 
         let win = KeyableWindow(
             contentRect: CGRect(x: 0, y: 0, width: popoverWidth, height: popoverHeight),
-            styleMask: .borderless,
+            styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -358,10 +361,13 @@ class WalkerCharacter {
         win.hasShadow = true
         win.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 10)
         win.collectionBehavior = [.moveToActiveSpace, .stationary]
+        win.minSize = NSSize(width: 320, height: 240)
+        win.maxSize = NSSize(width: 1400, height: 1000)
+        win.setFrameAutosaveName("lilagents-terminal")
         let brightness = t.popoverBg.redComponent * 0.299 + t.popoverBg.greenComponent * 0.587 + t.popoverBg.blueComponent * 0.114
         win.appearance = NSAppearance(named: brightness < 0.5 ? .darkAqua : .aqua)
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: popoverWidth, height: popoverHeight))
+        let container = PopoverChromeView(frame: NSRect(x: 0, y: 0, width: popoverWidth, height: popoverHeight))
         container.wantsLayer = true
         container.layer?.backgroundColor = t.popoverBg.cgColor
         container.layer?.cornerRadius = t.popoverCornerRadius
@@ -378,11 +384,35 @@ class WalkerCharacter {
         let titleLabel = NSTextField(labelWithString: t.titleString)
         titleLabel.font = t.titleFont
         titleLabel.textColor = t.titleText
-        titleLabel.frame = NSRect(x: 12, y: 6, width: popoverWidth - 80, height: 16)
+        titleLabel.frame = NSRect(x: 12, y: 6, width: popoverWidth - 100, height: 16)
         titleBar.addSubview(titleLabel)
 
-        // Copy button in title bar (icon only)
+        let minusBtn = NSButton(frame: NSRect(x: popoverWidth - 76, y: 5, width: 22, height: 16))
+        minusBtn.tag = 12
+        minusBtn.title = "A−"
+        minusBtn.font = .monospacedSystemFont(ofSize: 10, weight: .semibold)
+        minusBtn.bezelStyle = .inline
+        minusBtn.isBordered = false
+        minusBtn.contentTintColor = t.titleText.withAlphaComponent(0.85)
+        minusBtn.toolTip = "Smaller text"
+        minusBtn.target = self
+        minusBtn.action = #selector(adjustTerminalFontSize(_:))
+        titleBar.addSubview(minusBtn)
+
+        let plusBtn = NSButton(frame: NSRect(x: popoverWidth - 52, y: 5, width: 22, height: 16))
+        plusBtn.tag = 13
+        plusBtn.title = "A+"
+        plusBtn.font = .monospacedSystemFont(ofSize: 10, weight: .semibold)
+        plusBtn.bezelStyle = .inline
+        plusBtn.isBordered = false
+        plusBtn.contentTintColor = t.titleText.withAlphaComponent(0.85)
+        plusBtn.toolTip = "Larger text"
+        plusBtn.target = self
+        plusBtn.action = #selector(adjustTerminalFontSize(_:))
+        titleBar.addSubview(plusBtn)
+
         let copyBtn = NSButton(frame: NSRect(x: popoverWidth - 28, y: 5, width: 16, height: 16))
+        copyBtn.tag = 11
         copyBtn.image = NSImage(systemSymbolName: "square.on.square", accessibilityDescription: "Copy")
         copyBtn.imageScaling = .scaleProportionallyDown
         copyBtn.bezelStyle = .inline
@@ -409,9 +439,23 @@ class WalkerCharacter {
         }
         container.addSubview(terminal)
 
+        container.titleBarView = titleBar
+        container.separatorView = sep
+        container.terminalViewRef = terminal
+        container.titleLabelField = titleLabel
+        container.fontMinusButton = minusBtn
+        container.fontPlusButton = plusBtn
+        container.copyButton = copyBtn
+
         win.contentView = container
         popoverWindow = win
         terminalView = terminal
+    }
+
+    @objc func adjustTerminalFontSize(_ sender: NSButton) {
+        let delta: CGFloat = sender.tag == 12 ? -1 : 1
+        PopoverTheme.customFontSize = PopoverTheme.customFontSize + delta
+        terminalView?.refreshFontsFromTheme()
     }
 
     private func wireSession(_ session: any AgentSession, providerName: String = AgentProvider.current.displayName) {
@@ -799,9 +843,9 @@ class WalkerCharacter {
         currentTravelDistance = max(dockWidth - displayWidth, 0)
         if isIdleForPopover {
             let travelDistance = currentTravelDistance
-            let x = dockX + travelDistance * positionProgress + currentFlipCompensation
+            let x = dockX + travelDistance * positionProgress + currentFlipCompensation + userDragOffsetX
             let bottomPadding = displayHeight * 0.15
-            let y = dockTopY - bottomPadding + yOffset
+            let y = dockTopY - bottomPadding + yOffset + userDragOffsetY
             window.setFrameOrigin(NSPoint(x: x, y: y))
             updatePopoverPosition()
             updateThinkingBubble()
@@ -815,9 +859,9 @@ class WalkerCharacter {
                 startWalk()
             } else {
                 let travelDistance = max(dockWidth - displayWidth, 0)
-                let x = dockX + travelDistance * positionProgress + currentFlipCompensation
+                let x = dockX + travelDistance * positionProgress + currentFlipCompensation + userDragOffsetX
                 let bottomPadding = displayHeight * 0.15
-                let y = dockTopY - bottomPadding + yOffset
+                let y = dockTopY - bottomPadding + yOffset + userDragOffsetY
                 window.setFrameOrigin(NSPoint(x: x, y: y))
                 return
             }
@@ -843,12 +887,36 @@ class WalkerCharacter {
                 return
             }
 
-            let x = dockX + travelDistance * positionProgress + currentFlipCompensation
+            let x = dockX + travelDistance * positionProgress + currentFlipCompensation + userDragOffsetX
             let bottomPadding = displayHeight * 0.15
-            let y = dockTopY - bottomPadding + yOffset
+            let y = dockTopY - bottomPadding + yOffset + userDragOffsetY
             window.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
         updateThinkingBubble()
+    }
+}
+
+private final class PopoverChromeView: NSView {
+    weak var titleBarView: NSView?
+    weak var separatorView: NSView?
+    weak var terminalViewRef: NSView?
+    weak var titleLabelField: NSTextField?
+    weak var fontMinusButton: NSButton?
+    weak var fontPlusButton: NSButton?
+    weak var copyButton: NSButton?
+
+    override func layout() {
+        super.layout()
+        let w = bounds.width
+        let h = bounds.height
+        titleBarView?.frame = NSRect(x: 0, y: h - 28, width: w, height: 28)
+        separatorView?.frame = NSRect(x: 0, y: h - 29, width: w, height: 1)
+        terminalViewRef?.frame = NSRect(x: 0, y: 0, width: w, height: h - 29)
+        guard let titleBar = titleBarView else { return }
+        titleLabelField?.frame = NSRect(x: 12, y: 6, width: max(80, w - 100), height: 16)
+        fontMinusButton?.frame = NSRect(x: w - 76, y: 5, width: 22, height: 16)
+        fontPlusButton?.frame = NSRect(x: w - 52, y: 5, width: 22, height: 16)
+        copyButton?.frame = NSRect(x: w - 28, y: 5, width: 16, height: 16)
     }
 }
