@@ -62,6 +62,25 @@
                 "clear": false
             },
             "problemMatcher": []
+        },
+        {
+            "label": "打 Release 包",
+            "icon": {
+                "id": "package",
+                "color": "terminal.ansiCyan"
+            },
+            "type": "shell",
+            "command": "mkdir -p dist && xcodebuild -project lil-agents.xcodeproj -scheme LilAgents -configuration Release -destination platform=macOS -derivedDataPath .derivedData build && ditto -c -k --keepParent \".derivedData/Build/Products/Release/lil agents.app\" \"dist/lil-agents-Release.zip\"",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            },
+            "problemMatcher": []
         }
     ]
 }
