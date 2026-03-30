@@ -326,9 +326,21 @@ class TerminalView: NSView {
         attributed.append(NSAttributedString(string: "> ", attributes: [
             .font: t.fontBold, .foregroundColor: t.accentColor, .paragraphStyle: para
         ]))
-        attributed.append(NSAttributedString(string: "\(text)\n", attributes: [
-            .font: t.fontBold, .foregroundColor: t.textPrimary, .paragraphStyle: para
-        ]))
+        let body = NSMutableAttributedString(attributedString: renderInlineMarkdown(text, theme: t))
+        body.addAttributes([.paragraphStyle: para], range: NSRange(location: 0, length: body.length))
+        // Keep user text visually distinct, but preserve link attributes.
+        if body.length > 0 {
+            body.enumerateAttribute(.font, in: NSRange(location: 0, length: body.length)) { value, range, _ in
+                if value != nil {
+                    body.addAttribute(.font, value: t.fontBold, range: range)
+                } else {
+                    body.addAttribute(.font, value: t.fontBold, range: range)
+                }
+            }
+        }
+        body.addAttributes([.foregroundColor: t.textPrimary], range: NSRange(location: 0, length: body.length))
+        attributed.append(body)
+        attributed.append(NSAttributedString(string: "\n", attributes: [.font: t.fontBold, .foregroundColor: t.textPrimary, .paragraphStyle: para]))
         textView.textStorage?.append(attributed)
         scrollToBottom()
     }
@@ -527,6 +539,97 @@ class TerminalView: NSView {
                     continue
                 }
             }
+            // Image link preview: [![alt](thumbUrl)](fullUrl) -> render thumbnail attachment linked to fullUrl
+            if text[i] == "[",
+               text.index(after: i) < text.endIndex,
+               text[text.index(after: i)] == "!",
+               text.index(i, offsetBy: 2, limitedBy: text.endIndex) != nil,
+               text[text.index(i, offsetBy: 2)] == "[" {
+                let openOuter = i
+                let altStart = text.index(i, offsetBy: 3)
+                if altStart < text.endIndex,
+                   let altEnd = text[altStart...].firstIndex(of: "]") {
+                    let alt = String(text[altStart..<altEnd])
+                    // Expect (thumbUrl)
+                    let thumbParenStart = text.index(after: altEnd)
+                    if thumbParenStart < text.endIndex, text[thumbParenStart] == "(" {
+                        let thumbUrlStart = text.index(after: thumbParenStart)
+                        if thumbUrlStart < text.endIndex,
+                           let thumbUrlEnd = text[thumbUrlStart...].firstIndex(of: ")") {
+                            // Expect ](fullUrl)
+                            let closeInnerBracket = text.index(after: thumbUrlEnd)
+                            if closeInnerBracket < text.endIndex, text[closeInnerBracket] == "]" {
+                                let fullParenStart = text.index(after: closeInnerBracket)
+                                if fullParenStart < text.endIndex, text[fullParenStart] == "(" {
+                                    let fullUrlStart = text.index(after: fullParenStart)
+                                    if fullUrlStart < text.endIndex,
+                                       let fullUrlEnd = text[fullUrlStart...].firstIndex(of: ")") {
+                                        let fullUrlStr = String(text[fullUrlStart..<fullUrlEnd])
+                                        let thumbUrlStr = String(text[thumbUrlStart..<thumbUrlEnd])
+                                        if let thumbURL = URL(string: thumbUrlStr),
+                                           let fullURL = URL(string: fullUrlStr) {
+                                            result.append(makeLinkedImageAttachment(thumbURL: thumbURL, linkURL: fullURL, alt: alt, theme: t))
+                                        } else {
+                                            // Fallback to link text if URLs are invalid
+                                            let label = alt.isEmpty ? "preview" : alt
+                                            var attrs: [NSAttributedString.Key: Any] = [
+                                                .font: t.fontBold,
+                                                .foregroundColor: t.accentColor,
+                                                .underlineStyle: NSUnderlineStyle.single.rawValue
+                                            ]
+                                            if let url = URL(string: fullUrlStr) {
+                                                attrs[.link] = url
+                                                attrs[.cursor] = NSCursor.pointingHand
+                                            }
+                                            result.append(NSAttributedString(string: label, attributes: attrs))
+                                        }
+                                        i = text.index(after: fullUrlEnd)
+                                        continue
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // If parsing failed, fall through and render as plain text.
+                i = text.index(after: openOuter)
+                continue
+            }
+            // Image: ![alt](url) -> render attachment linked to url
+            if text[i] == "!",
+               text.index(after: i) < text.endIndex,
+               text[text.index(after: i)] == "[" {
+                let altStart = text.index(i, offsetBy: 2)
+                if altStart < text.endIndex,
+                   let altEnd = text[altStart...].firstIndex(of: "]") {
+                    let parenStart = text.index(after: altEnd)
+                    if parenStart < text.endIndex && text[parenStart] == "(" {
+                        let urlStart = text.index(after: parenStart)
+                        if urlStart < text.endIndex,
+                           let urlEnd = text[urlStart...].firstIndex(of: ")") {
+                            let alt = String(text[altStart..<altEnd])
+                            let urlStr = String(text[urlStart..<urlEnd])
+                            if let url = URL(string: urlStr) {
+                                result.append(makeLinkedImageAttachment(thumbURL: url, linkURL: url, alt: alt, theme: t))
+                            } else {
+                                let label = alt.isEmpty ? "image" : alt
+                                var attrs: [NSAttributedString.Key: Any] = [
+                                    .font: t.font,
+                                    .foregroundColor: t.accentColor,
+                                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                                ]
+                                if let url = URL(string: urlStr) {
+                                    attrs[.link] = url
+                                    attrs[.cursor] = NSCursor.pointingHand
+                                }
+                                result.append(NSAttributedString(string: label, attributes: attrs))
+                            }
+                            i = text.index(after: urlEnd)
+                            continue
+                        }
+                    }
+                }
+            }
             if text[i] == "[" {
                 let afterBracket = text.index(after: i)
                 if afterBracket < text.endIndex,
@@ -581,5 +684,51 @@ class TerminalView: NSView {
             i = text.index(after: i)
         }
         return result
+    }
+
+    private static let imageCache = NSCache<NSURL, NSImage>()
+
+    private func makeLinkedImageAttachment(thumbURL: URL, linkURL: URL, alt: String, theme t: PopoverTheme) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+        let placeholder = NSImage(systemSymbolName: "photo", accessibilityDescription: alt) ?? NSImage()
+        attachment.image = placeholder
+
+        // Make the attachment reasonably small for chat.
+        let maxH: CGFloat = 90
+        let maxW: CGFloat = 160
+        let phSize = placeholder.size
+        let scale = min(maxW / max(phSize.width, 1), maxH / max(phSize.height, 1), 1.0)
+        attachment.bounds = CGRect(x: 0, y: -2, width: round(phSize.width * scale), height: round(phSize.height * scale))
+
+        let attr = NSMutableAttributedString(attachment: attachment)
+        // Link attribute on attachment range makes it clickable in NSTextView.
+        attr.addAttributes([
+            .link: linkURL,
+            .cursor: NSCursor.pointingHand
+        ], range: NSRange(location: 0, length: attr.length))
+
+        // Async load thumbnail and swap attachment image.
+        if let cached = Self.imageCache.object(forKey: thumbURL as NSURL) {
+            applyImage(cached, to: attachment, maxW: maxW, maxH: maxH)
+        } else {
+            URLSession.shared.dataTask(with: thumbURL) { [weak self] data, _, _ in
+                guard let data, let img = NSImage(data: data) else { return }
+                Self.imageCache.setObject(img, forKey: thumbURL as NSURL)
+                DispatchQueue.main.async {
+                    self?.applyImage(img, to: attachment, maxW: maxW, maxH: maxH)
+                }
+            }.resume()
+        }
+
+        return attr
+    }
+
+    private func applyImage(_ img: NSImage, to attachment: NSTextAttachment, maxW: CGFloat, maxH: CGFloat) {
+        attachment.image = img
+        let size = img.size
+        let scale = min(maxW / max(size.width, 1), maxH / max(size.height, 1), 1.0)
+        attachment.bounds = CGRect(x: 0, y: -2, width: round(size.width * scale), height: round(size.height * scale))
+        textView.needsDisplay = true
+        textView.layoutManager?.invalidateLayout(forCharacterRange: NSRange(location: 0, length: textView.string.count), actualCharacterRange: nil)
     }
 }

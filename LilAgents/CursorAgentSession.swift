@@ -399,6 +399,7 @@ final class CursorAgentSession: AgentSession {
     }
 
     private func parseLine(_ line: String) {
+        DebugConsole.shared.append("Cursor <<raw>> \(line)")
         guard let data = line.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 

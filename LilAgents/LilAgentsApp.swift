@@ -61,6 +61,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         soundItem.state = .on
         menu.addItem(soundItem)
 
+        let debugLogItem = NSMenuItem(title: "Debug Log", action: #selector(toggleDebugLog(_:)), keyEquivalent: "")
+        debugLogItem.state = DebugConsole.shared.isEnabled ? .on : .off
+        menu.addItem(debugLogItem)
+
         let languageItem = NSMenuItem(title: ui.menuTitleLanguage, action: nil, keyEquivalent: "")
         let languageMenu = NSMenu()
         for (i, lang) in AppLanguage.allCases.enumerated() {
@@ -232,6 +236,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             sender.state = .on
         }
         WalkerCharacter.persistVisibility(videoName: char.videoName, visible: char.isManuallyVisible)
+    }
+
+    @objc func toggleDebugLog(_ sender: NSMenuItem) {
+        let next = !DebugConsole.shared.isEnabled
+        DebugConsole.shared.setEnabled(next)
+        sender.state = next ? .on : .off
     }
 
     @objc func toggleDebug(_ sender: NSMenuItem) {

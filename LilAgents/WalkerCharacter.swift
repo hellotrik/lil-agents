@@ -450,11 +450,14 @@ class WalkerCharacter {
         terminal.themeOverride = themeOverride
         terminal.autoresizingMask = [.width, .height]
         terminal.onSendMessage = { [weak self] message in
+            let provider = AgentProvider.current.displayName
+            DebugConsole.shared.append("\(provider) >> \(message)")
             self?.session?.send(message: message)
         }
         terminal.onClearRequested = { [weak self] in
             self?.session?.history.removeAll()
             (self?.session as? CursorAgentSession)?.clearRemoteSession()
+            DebugConsole.shared.append("UI >> /clear")
         }
         container.addSubview(terminal)
 
@@ -481,31 +484,40 @@ class WalkerCharacter {
         session.onText = { [weak self] text in
             self?.currentStreamingText += text
             self?.terminalView?.appendStreamingText(text)
+            DebugConsole.shared.append("\(providerName) <<delta>> \(text)")
         }
 
         session.onTurnComplete = { [weak self] in
             self?.terminalView?.endStreaming()
             self?.playCompletionSound()
             self?.showCompletionBubble()
+            if let full = self?.currentStreamingText, !full.isEmpty {
+                DebugConsole.shared.append("\(providerName) << \(full)")
+            }
+            self?.currentStreamingText = ""
         }
 
         session.onError = { [weak self] text in
             self?.terminalView?.appendError(text)
+            DebugConsole.shared.append("\(providerName) <<error>> \(text)")
         }
 
         session.onToolUse = { [weak self] toolName, input in
             guard let self = self else { return }
             let summary = self.formatToolInput(input)
             self.terminalView?.appendToolUse(toolName: toolName, summary: summary)
+            DebugConsole.shared.append("\(providerName) <<tool>> \(toolName) \(summary)")
         }
 
         session.onToolResult = { [weak self] summary, isError in
             self?.terminalView?.appendToolResult(summary: summary, isError: isError)
+            DebugConsole.shared.append("\(providerName) <<toolResult>> \(isError ? "ERROR" : "OK") \(summary)")
         }
 
         session.onProcessExit = { [weak self] in
             self?.terminalView?.endStreaming()
             self?.terminalView?.appendError("\(providerName) session ended.")
+            DebugConsole.shared.append("\(providerName) <<exit>> session ended")
         }
     }
 
