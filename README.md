@@ -21,7 +21,7 @@ Supports **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Google Gemini*
 - Thinking bubbles with playful phrases while your agent works
 - Sound effects on completion
 - First-run onboarding with a friendly welcome
-- Auto-updates via Sparkle
+- Sparkle updates (automatic checks disabled; appcast URL is local in `Info.plist` — serve `appcast.xml` yourself when testing)
 
 ## requirements
 
@@ -45,7 +45,7 @@ lil agents runs entirely on your Mac and sends no personal data anywhere.
 - **Your data stays local.** The app plays bundled animations and calculates your dock size to position the characters. No project data, file paths, or personal information is collected or transmitted.
 - **AI providers.** Conversations are handled entirely by the CLI process you choose (Claude, Codex, Copilot, Gemini, or Cursor) running locally. lil agents does not intercept, store, or transmit your chat content. Any data sent to the provider is governed by their respective terms and privacy policies (for Cursor CLI, that includes Cursor’s services when your request is processed by their agent).
 - **No accounts in lil agents.** The app itself has no login or user database. Some CLIs (including Cursor CLI) may require their own account or API key in your environment.
-- **Updates.** lil agents uses Sparkle to check for updates, which sends your app version and macOS version. Nothing else.
+- **Updates.** Sparkle is configured with **no automatic background checks**. The update feed URL is **`http://127.0.0.1:8080/appcast.xml`** (see `LilAgents/Info.plist`). When you use **Check for Updates…**, Sparkle requests that URL and sends your app version and macOS version to whatever server is listening there — typically only your own machine during local testing.
 
 ## license
 

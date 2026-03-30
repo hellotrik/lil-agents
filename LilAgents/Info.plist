@@ -4,13 +4,24 @@
 <dict>
     <key>LSUIElement</key>
     <true/>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>127.0.0.1</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
     <key>SUFeedURL</key>
-    <string>https://lilagents.xyz/appcast.xml</string>
+    <string>http://127.0.0.1:8080/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>8QOCrY3j4crgz4iR5lmxyv+rA5vnqK6Qtd1XheMllP8=</string>
     <key>SUEnableAutomaticChecks</key>
-    <true/>
+    <false/>
     <key>SUAllowsAutomaticUpdates</key>
-    <true/>
+    <false/>
 </dict>
 </plist>
