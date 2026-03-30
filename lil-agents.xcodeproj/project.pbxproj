@@ -25,6 +25,7 @@
 		A10000010000000000000034 /* CopilotSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000033 /* CopilotSession.swift */; };
 		A10000010000000000000035 /* GeminiSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000034 /* GeminiSession.swift */; };
 		A10000010000000000000036 /* CursorAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000036 /* CursorAgentSession.swift */; };
+		A10000010000000000000037 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000037 /* AppLanguage.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,7 @@
 		A10000020000000000000033 /* CopilotSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotSession.swift; sourceTree = "<group>"; };
 		A10000020000000000000034 /* GeminiSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiSession.swift; sourceTree = "<group>"; };
 		A10000020000000000000036 /* CursorAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorAgentSession.swift; sourceTree = "<group>"; };
+		A10000020000000000000037 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A10000030000000000000001 /* lil agents.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "lil agents.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -74,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000020000000000000001 /* LilAgentsApp.swift */,
+				A10000020000000000000037 /* AppLanguage.swift */,
 				A10000020000000000000020 /* PopoverTheme.swift */,
 				A10000020000000000000021 /* CharacterContentView.swift */,
 				A10000020000000000000030 /* AgentSession.swift */,
@@ -183,6 +186,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000010000000000000001 /* LilAgentsApp.swift in Sources */,
+				A10000010000000000000037 /* AppLanguage.swift in Sources */,
 				A10000010000000000000020 /* PopoverTheme.swift in Sources */,
 				A10000010000000000000021 /* CharacterContentView.swift in Sources */,
 				A10000010000000000000031 /* AgentSession.swift in Sources */,

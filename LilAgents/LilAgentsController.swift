@@ -55,10 +55,11 @@ class LilAgentsController {
         bruce.isOnboarding = true
         // Show "hi!" bubble after a short delay so the character is visible first
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            bruce.currentPhrase = "hi!"
+            let hi = AppLanguage.current.onboardingHi
+            bruce.currentPhrase = hi
             bruce.showingCompletion = true
             bruce.completionBubbleExpiry = CACurrentMediaTime() + 600 // stays until clicked
-            bruce.showBubble(text: "hi!", isCompletion: true)
+            bruce.showBubble(text: hi, isCompletion: true)
             bruce.playCompletionSound()
         }
     }
@@ -66,6 +67,10 @@ class LilAgentsController {
     func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: Self.onboardingKey)
         characters.forEach { $0.isOnboarding = false }
+    }
+
+    func applyLanguageChange() {
+        characters.forEach { $0.applyLanguageChange() }
     }
 
     // MARK: - Debug

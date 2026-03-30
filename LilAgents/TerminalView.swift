@@ -322,6 +322,15 @@ class TerminalView: NSView {
         scrollToBottom()
     }
 
+    /// 首次引导弹窗打开时切换语言，替换欢迎正文（保持输入区仍为不可编辑引导态）。
+    func setOnboardingWelcomeText(_ text: String) {
+        textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
+        currentAssistantText = ""
+        isStreaming = false
+        appendStreamingText(text)
+        endStreaming()
+    }
+
     func replayHistory(_ messages: [AgentMessage]) {
         let t = theme
         textView.textStorage?.setAttributedString(NSAttributedString(string: ""))

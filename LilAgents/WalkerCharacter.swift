@@ -203,15 +203,7 @@ class WalkerCharacter {
         // Show static welcome message instead of Claude terminal
         terminalView?.inputField.isEditable = false
         terminalView?.inputField.placeholderString = ""
-        let welcome = """
-        hey! we're bruce and jazz — your lil dock agents.
-
-        click either of us to open a Claude AI chat. we'll walk around while you work and let you know when Claude's thinking.
-
-        check the menu bar icon (top right) for themes, sounds, and more options.
-
-        click anywhere outside to dismiss, then click us again to start chatting.
-        """
+        let welcome = AppLanguage.current.onboardingWelcome
         terminalView?.appendStreamingText(welcome)
         terminalView?.endStreaming()
 
@@ -520,23 +512,6 @@ class WalkerCharacter {
 
     // MARK: - Thinking Bubble
 
-    private static let thinkingPhrases = [
-        "hmm...", "thinking...", "one sec...", "ok hold on",
-        "let me check", "working on it", "almost...", "bear with me",
-        "on it!", "gimme a sec", "brb", "processing...",
-        "hang tight", "just a moment", "figuring it out",
-        "crunching...", "reading...", "looking...",
-        "cooking...", "vibing...", "digging in",
-        "connecting dots", "give me a sec",
-        "don't rush me", "calculating...", "assembling\u{2026}"
-    ]
-
-    private static let completionPhrases = [
-        "done!", "all set!", "ready!", "here you go", "got it!",
-        "finished!", "ta-da!", "voila!",
-        "boom!", "there ya go!", "check it out!"
-    ]
-
     private var lastPhraseUpdate: CFTimeInterval = 0
     var currentPhrase = ""
     var completionBubbleExpiry: CFTimeInterval = 0
@@ -650,24 +625,51 @@ class WalkerCharacter {
 
     private func updateThinkingPhrase() {
         let now = CACurrentMediaTime()
+        let lang = AppLanguage.current
         if currentPhrase.isEmpty || now - lastPhraseUpdate > Double.random(in: 3.0...5.0) {
-            var next = Self.thinkingPhrases.randomElement() ?? "..."
-            while next == currentPhrase && Self.thinkingPhrases.count > 1 {
-                next = Self.thinkingPhrases.randomElement() ?? "..."
-            }
-            currentPhrase = next
+            currentPhrase = lang.randomThinkingPhrase(excluding: currentPhrase)
             lastPhraseUpdate = now
         }
     }
 
     func showCompletionBubble() {
-        currentPhrase = Self.completionPhrases.randomElement() ?? "done!"
+        currentPhrase = AppLanguage.current.randomCompletionPhrase()
         showingCompletion = true
         completionBubbleExpiry = CACurrentMediaTime() + 3.0
         lastPhraseUpdate = 0
         phraseAnimating = false
         if !isIdleForPopover {
             showBubble(text: currentPhrase, isCompletion: true)
+        }
+    }
+
+    /// 菜单中切换界面语言后，刷新气泡与引导弹窗文案。
+    func applyLanguageChange() {
+        refreshLocalizedBubbleTexts()
+        refreshOnboardingWelcomeIfNeeded()
+    }
+
+    private func refreshOnboardingWelcomeIfNeeded() {
+        guard isOnboarding, isIdleForPopover, terminalView != nil else { return }
+        terminalView?.setOnboardingWelcomeText(AppLanguage.current.onboardingWelcome)
+    }
+
+    private func refreshLocalizedBubbleTexts() {
+        let lang = AppLanguage.current
+        if showingCompletion {
+            if isOnboarding {
+                currentPhrase = lang.onboardingHi
+                showBubble(text: currentPhrase, isCompletion: true)
+            } else if !isIdleForPopover {
+                currentPhrase = lang.randomCompletionPhrase()
+                showBubble(text: currentPhrase, isCompletion: true)
+            }
+            return
+        }
+        if isAgentBusy && !isIdleForPopover {
+            currentPhrase = lang.randomThinkingPhrase(excluding: currentPhrase)
+            lastPhraseUpdate = CACurrentMediaTime()
+            showBubble(text: currentPhrase, isCompletion: false)
         }
     }
 
