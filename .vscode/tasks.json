@@ -1,0 +1,67 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "编译 (Debug)",
+            "icon": {
+                "id": "hammer",
+                "color": "terminal.ansiYellow"
+            },
+            "type": "shell",
+            "command": "xcodebuild",
+            "args": [
+                "-project",
+                "lil-agents.xcodeproj",
+                "-scheme",
+                "LilAgents",
+                "-configuration",
+                "Debug",
+                "-destination",
+                "platform=macOS",
+                "-derivedDataPath",
+                "${workspaceFolder}/.derivedData",
+                "build"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "运行 lil agents",
+            "icon": {
+                "id": "play",
+                "color": "terminal.ansiGreen"
+            },
+            "type": "shell",
+            "command": "open",
+            "args": [
+                "${workspaceFolder}/.derivedData/Build/Products/Debug/lil agents.app"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": [
+                "编译 (Debug)"
+            ],
+            "dependsOrder": "sequence",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            },
+            "problemMatcher": []
+        }
+    ]
+}

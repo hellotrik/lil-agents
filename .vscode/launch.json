@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "调试 lil agents",
+            "program": "${workspaceFolder}/.derivedData/Build/Products/Debug/lil agents.app/Contents/MacOS/lil agents",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "编译 (Debug)"
+        }
+    ]
+}
