@@ -1,8 +1,21 @@
 import Foundation
 
+/// `agent --mode` values (default is full agent with edits).
+enum CursorCLIMode: String, Codable {
+    case agent
+    case plan
+    case ask
+}
+
+/// Persisted `--sandbox` override for Cursor CLI.
+enum CursorCLISandbox: String, Codable {
+    case `default`
+    case enabled
+    case disabled
+}
+
 /// Drives the Cursor CLI (`agent`) in `--print` mode with `stream-json` output.
-/// After the first successful turn, uses `--continue` so the CLI keeps a server-side chat session
-/// (`session_id` in stream-json) instead of re-sending the full transcript each time.
+/// Uses `--resume` with a persisted `session_id` for follow-up turns.
 final class CursorAgentSession: AgentSession {
     private var process: Process?
     private var outputPipe: Pipe?
@@ -13,6 +26,10 @@ final class CursorAgentSession: AgentSession {
     private var remoteSessionId: String?
     /// Set to `WalkerCharacter.videoName` so each character has a separate persisted Cursor chat.
     var persistenceKey: String = ""
+    /// Optional `agent --model` override (nil = CLI default).
+    private(set) var cursorModel: String?
+    private(set) var cursorMode: CursorCLIMode = .agent
+    private(set) var cursorSandbox: CursorCLISandbox = .default
     private(set) var isRunning = false
     private(set) var isBusy = false
     private static var binaryPath: String?
@@ -78,6 +95,29 @@ final class CursorAgentSession: AgentSession {
             "--yolo",
             "--workspace", FileManager.default.homeDirectoryForCurrentUser.path
         ]
+        if let m = cursorModel, !m.isEmpty {
+            args.append("--model")
+            args.append(m)
+        }
+        switch cursorMode {
+        case .agent:
+            break
+        case .plan:
+            args.append("--plan")
+        case .ask:
+            args.append("--mode")
+            args.append("ask")
+        }
+        switch cursorSandbox {
+        case .default:
+            break
+        case .enabled:
+            args.append("--sandbox")
+            args.append("enabled")
+        case .disabled:
+            args.append("--sandbox")
+            args.append("disabled")
+        }
         if useResume, let sid = remoteSessionId {
             args.append("--resume")
             args.append(sid)
@@ -184,6 +224,17 @@ final class CursorAgentSession: AgentSession {
            let msgs = try? JSONDecoder().decode([AgentMessage].self, from: data) {
             history = msgs
         }
+        if let m = d.string(forKey: "\(base).cursorModel"), !m.isEmpty {
+            cursorModel = m
+        }
+        if let raw = d.string(forKey: "\(base).cursorMode"),
+           let mode = CursorCLIMode(rawValue: raw) {
+            cursorMode = mode
+        }
+        if let raw = d.string(forKey: "\(base).cursorSandbox"),
+           let sb = CursorCLISandbox(rawValue: raw) {
+            cursorSandbox = sb
+        }
     }
 
     private func persistStateIfNeeded() {
@@ -197,6 +248,13 @@ final class CursorAgentSession: AgentSession {
         if let data = try? JSONEncoder().encode(history) {
             d.set(data, forKey: "\(base).history")
         }
+        if let m = cursorModel, !m.isEmpty {
+            d.set(m, forKey: "\(base).cursorModel")
+        } else {
+            d.removeObject(forKey: "\(base).cursorModel")
+        }
+        d.set(cursorMode.rawValue, forKey: "\(base).cursorMode")
+        d.set(cursorSandbox.rawValue, forKey: "\(base).cursorSandbox")
     }
 
     private func clearPersistedState() {
@@ -204,6 +262,94 @@ final class CursorAgentSession: AgentSession {
         let d = UserDefaults.standard
         d.removeObject(forKey: "\(base).remoteSessionId")
         d.removeObject(forKey: "\(base).history")
+    }
+
+    // MARK: - Slash commands (Cursor only)
+
+    /// Runs `agent --list-models` synchronously (call off main thread from UI).
+    func runListModels() -> String {
+        guard let binaryPath = Self.binaryPath else {
+            return "Cursor CLI (agent) not found."
+        }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: binaryPath)
+        proc.arguments = ["--list-models"]
+        proc.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        proc.environment = ShellEnvironment.processEnvironment(extraPaths: [
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path,
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".npm-global/bin").path
+        ])
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        proc.standardOutput = outPipe
+        proc.standardError = errPipe
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            return "Failed to run agent --list-models: \(error.localizedDescription)"
+        }
+        let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let combined = [out, err].filter { !$0.isEmpty }.joined(separator: "\n")
+        return combined.isEmpty ? "(no output)" : combined
+    }
+
+    func handleSlashModel(_ arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Current model: \(cursorModel ?? "(CLI default)")"
+        }
+        let low = trimmed.lowercased()
+        if low == "clear" || low == "default" {
+            cursorModel = nil
+            persistStateIfNeeded()
+            return "Model cleared — using CLI default."
+        }
+        cursorModel = trimmed
+        persistStateIfNeeded()
+        return "Model set to: \(trimmed)"
+    }
+
+    func handleSlashMode(_ arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Current mode: \(cursorMode.rawValue) (agent = edits, plan = read-only plan, ask = Q&A)"
+        }
+        let low = trimmed.lowercased()
+        if low == "default" {
+            cursorMode = .agent
+            persistStateIfNeeded()
+            return "Mode set to: agent (default)"
+        }
+        guard let mode = CursorCLIMode(rawValue: low) else {
+            return "Unknown mode. Use: agent | plan | ask | default"
+        }
+        cursorMode = mode
+        persistStateIfNeeded()
+        return "Mode set to: \(mode.rawValue)"
+    }
+
+    func handleSlashSandbox(_ arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Current sandbox: \(cursorSandbox.rawValue)"
+        }
+        let low = trimmed.lowercased()
+        let next: CursorCLISandbox
+        switch low {
+        case "on", "enabled", "true", "yes":
+            next = .enabled
+        case "off", "disabled", "false", "no":
+            next = .disabled
+        case "default", "clear":
+            next = .default
+        default:
+            return "Unknown value. Use: on | off | default"
+        }
+        cursorSandbox = next
+        persistStateIfNeeded()
+        return "Sandbox set to: \(next.rawValue)"
     }
 
     private static func execPrompt(priorMessages: ArraySlice<AgentMessage>, latestUserMessage: String) -> String {

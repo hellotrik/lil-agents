@@ -53,6 +53,8 @@ class TerminalView: NSView {
     let inputField = NSTextField()
     var onSendMessage: ((String) -> Void)?
     var onClearRequested: (() -> Void)?
+    /// Set when provider is Cursor so `/model`, `/list-models`, etc. work.
+    weak var cursorAgentSession: CursorAgentSession?
 
     private var currentAssistantText = ""
     private var lastAssistantText = ""
@@ -184,11 +186,57 @@ class TerminalView: NSView {
         _ = handleSlashCommand(text)
     }
 
+    private func slashHeadAndRest(_ text: String) -> (head: String, rest: String) {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        let parts = t.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard let first = parts.first else { return ("", "") }
+        let head = String(first).lowercased()
+        let rest = parts.count > 1 ? String(parts[1]) : ""
+        return (head, rest)
+    }
+
+    private func appendSystemLine(_ text: String) {
+        let t = theme
+        ensureNewline()
+        textView.textStorage?.append(NSAttributedString(
+            string: "  \(text)\n",
+            attributes: [.font: t.font, .foregroundColor: t.textDim]
+        ))
+        scrollToBottom()
+    }
+
     private func handleSlashCommand(_ text: String) -> Bool {
         guard text.hasPrefix("/") else { return false }
-        let cmd = text.lowercased().trimmingCharacters(in: .whitespaces)
+        let (head, rest) = slashHeadAndRest(text)
 
-        switch cmd {
+        if AgentProvider.current == .cursor, let cursor = cursorAgentSession {
+            switch head {
+            case "/model":
+                let msg = cursor.handleSlashModel(rest)
+                appendSystemLine(msg)
+                return true
+            case "/list-models":
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let msg = cursor.runListModels()
+                    DispatchQueue.main.async {
+                        self?.appendSystemLine(msg)
+                    }
+                }
+                return true
+            case "/mode":
+                let msg = cursor.handleSlashMode(rest)
+                appendSystemLine(msg)
+                return true
+            case "/sandbox":
+                let msg = cursor.handleSlashSandbox(rest)
+                appendSystemLine(msg)
+                return true
+            default:
+                break
+            }
+        }
+
+        switch head {
         case "/clear":
             textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
             onClearRequested?()
@@ -217,6 +265,28 @@ class TerminalView: NSView {
             help.append(NSAttributedString(string: "copy last response\n", attributes: [.font: t.font, .foregroundColor: t.textDim]))
             help.append(NSAttributedString(string: "  /help   ", attributes: [.font: t.fontBold, .foregroundColor: t.textPrimary]))
             help.append(NSAttributedString(string: "show this message\n", attributes: [.font: t.font, .foregroundColor: t.textDim]))
+            if AgentProvider.current == .cursor {
+                help.append(NSAttributedString(string: "\n  — Cursor CLI —\n", attributes: [.font: t.fontBold, .foregroundColor: t.accentColor]))
+                let dim: [NSAttributedString.Key: Any] = [.font: t.font, .foregroundColor: t.textDim]
+                let cmd: [NSAttributedString.Key: Any] = [.font: t.fontBold, .foregroundColor: t.textPrimary]
+                help.append(NSAttributedString(string: "  /model\n", attributes: cmd))
+                help.append(NSAttributedString(string: "      (no args)     show current model (or default)\n", attributes: dim))
+                help.append(NSAttributedString(string: "      <name>        set agent --model <name>\n", attributes: dim))
+                help.append(NSAttributedString(string: "      clear|default clear model override\n", attributes: dim))
+                help.append(NSAttributedString(string: "  /list-models\n", attributes: cmd))
+                help.append(NSAttributedString(string: "      run agent --list-models (available models)\n", attributes: dim))
+                help.append(NSAttributedString(string: "  /mode\n", attributes: cmd))
+                help.append(NSAttributedString(string: "      (no args)     show current mode\n", attributes: dim))
+                help.append(NSAttributedString(string: "      agent         full agent (edits/tools)\n", attributes: dim))
+                help.append(NSAttributedString(string: "      plan          read-only planning (--plan)\n", attributes: dim))
+                help.append(NSAttributedString(string: "      ask           Q&A only (--mode ask)\n", attributes: dim))
+                help.append(NSAttributedString(string: "      default       same as agent\n", attributes: dim))
+                help.append(NSAttributedString(string: "  /sandbox\n", attributes: cmd))
+                help.append(NSAttributedString(string: "      (no args)     show current sandbox setting\n", attributes: dim))
+                help.append(NSAttributedString(string: "      on|enabled    --sandbox enabled\n", attributes: dim))
+                help.append(NSAttributedString(string: "      off|disabled  --sandbox disabled\n", attributes: dim))
+                help.append(NSAttributedString(string: "      default|clear use CLI default\n", attributes: dim))
+            }
             textView.textStorage?.append(help)
             scrollToBottom()
             return true

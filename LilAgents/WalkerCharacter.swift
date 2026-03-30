@@ -276,6 +276,7 @@ class WalkerCharacter {
 
         if let terminal = terminalView {
             popoverWindow?.makeFirstResponder(terminal.inputField)
+            terminal.cursorAgentSession = session as? CursorAgentSession
         }
 
         // Remove old monitors before adding new ones
