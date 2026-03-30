@@ -76,8 +76,10 @@ enum TitleFormat {
 
 // MARK: - Message
 
-struct AgentMessage {
-    enum Role { case user, assistant, error, toolUse, toolResult }
+struct AgentMessage: Codable {
+    enum Role: String, Codable {
+        case user, assistant, error, toolUse, toolResult
+    }
     let role: Role
     let text: String
 }

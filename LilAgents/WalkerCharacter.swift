@@ -254,6 +254,9 @@ class WalkerCharacter {
 
         if session == nil {
             let newSession = AgentProvider.current.createSession()
+            if let cursor = newSession as? CursorAgentSession {
+                cursor.persistenceKey = videoName
+            }
             session = newSession
             wireSession(newSession)
             newSession.start()
@@ -428,6 +431,7 @@ class WalkerCharacter {
         }
         terminal.onClearRequested = { [weak self] in
             self?.session?.history.removeAll()
+            (self?.session as? CursorAgentSession)?.clearRemoteSession()
         }
         container.addSubview(terminal)
 

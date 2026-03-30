@@ -1,14 +1,18 @@
 import Foundation
 
-/// Drives the Cursor CLI (`agent`) in `--print` mode with `stream-json` output, matching other
-/// one-shot providers (e.g. Codex): each user message spawns a process; multi-turn context is
-/// flattened via a shared prompt format.
+/// Drives the Cursor CLI (`agent`) in `--print` mode with `stream-json` output.
+/// After the first successful turn, uses `--continue` so the CLI keeps a server-side chat session
+/// (`session_id` in stream-json) instead of re-sending the full transcript each time.
 final class CursorAgentSession: AgentSession {
     private var process: Process?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
     private var lineBuffer = ""
     private var emittedAssistantPrefix = ""
+    /// Cursor CLI chat id from `stream-json` (`system`/`result`); non-nil ⇒ next `send` uses `--resume`.
+    private var remoteSessionId: String?
+    /// Set to `WalkerCharacter.videoName` so each character has a separate persisted Cursor chat.
+    var persistenceKey: String = ""
     private(set) var isRunning = false
     private(set) var isBusy = false
     private static var binaryPath: String?
@@ -26,6 +30,7 @@ final class CursorAgentSession: AgentSession {
     func start() {
         if let cached = Self.binaryPath {
             isRunning = true
+            loadPersistedState()
             onSessionReady?()
             return
         }
@@ -40,6 +45,7 @@ final class CursorAgentSession: AgentSession {
             guard let self = self else { return }
             if let binaryPath = path {
                 Self.binaryPath = binaryPath
+                self.loadPersistedState()
                 self.isRunning = true
                 self.onSessionReady?()
             } else {
@@ -57,18 +63,30 @@ final class CursorAgentSession: AgentSession {
         lineBuffer = ""
         emittedAssistantPrefix = ""
 
-        let prompt = Self.execPrompt(priorMessages: history.dropLast(), latestUserMessage: message)
+        let useResume = remoteSessionId != nil
+        let prompt: String
+        if useResume {
+            prompt = message
+        } else {
+            prompt = Self.execPrompt(priorMessages: history.dropLast(), latestUserMessage: message)
+        }
 
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: binaryPath)
-        proc.arguments = [
+        var args: [String] = [
             "--print",
             "--output-format", "stream-json",
             "--trust",
             "--yolo",
-            "--workspace", FileManager.default.homeDirectoryForCurrentUser.path,
-            prompt
+            "--workspace", FileManager.default.homeDirectoryForCurrentUser.path
         ]
+        if useResume, let sid = remoteSessionId {
+            args.append("--resume")
+            args.append(sid)
+        }
+        args.append(prompt)
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: binaryPath)
+        proc.arguments = args
 
         proc.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
         proc.environment = ShellEnvironment.processEnvironment(extraPaths: [
@@ -125,6 +143,7 @@ final class CursorAgentSession: AgentSession {
             process = proc
             outputPipe = outPipe
             errorPipe = errPipe
+            persistStateIfNeeded()
         } catch {
             isBusy = false
             let msg = "Failed to launch Cursor CLI: \(error.localizedDescription)"
@@ -134,12 +153,57 @@ final class CursorAgentSession: AgentSession {
     }
 
     func terminate() {
+        persistStateIfNeeded()
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         errorPipe?.fileHandleForReading.readabilityHandler = nil
         process?.terminate()
         process = nil
         isRunning = false
         isBusy = false
+        remoteSessionId = nil
+    }
+
+    /// Clears the Cursor CLI session id so the next turn starts a new remote chat (e.g. after `/clear`).
+    func clearRemoteSession() {
+        remoteSessionId = nil
+        clearPersistedState()
+    }
+
+    private func defaultsBaseKey() -> String? {
+        guard !persistenceKey.isEmpty else { return nil }
+        return "LilAgents.cursor.\(persistenceKey)"
+    }
+
+    private func loadPersistedState() {
+        guard let base = defaultsBaseKey() else { return }
+        let d = UserDefaults.standard
+        if let sid = d.string(forKey: "\(base).remoteSessionId"), !sid.isEmpty {
+            remoteSessionId = sid
+        }
+        if let data = d.data(forKey: "\(base).history"),
+           let msgs = try? JSONDecoder().decode([AgentMessage].self, from: data) {
+            history = msgs
+        }
+    }
+
+    private func persistStateIfNeeded() {
+        guard let base = defaultsBaseKey() else { return }
+        let d = UserDefaults.standard
+        if let sid = remoteSessionId, !sid.isEmpty {
+            d.set(sid, forKey: "\(base).remoteSessionId")
+        } else {
+            d.removeObject(forKey: "\(base).remoteSessionId")
+        }
+        if let data = try? JSONEncoder().encode(history) {
+            d.set(data, forKey: "\(base).history")
+        }
+    }
+
+    private func clearPersistedState() {
+        guard let base = defaultsBaseKey() else { return }
+        let d = UserDefaults.standard
+        d.removeObject(forKey: "\(base).remoteSessionId")
+        d.removeObject(forKey: "\(base).history")
     }
 
     private static func execPrompt(priorMessages: ArraySlice<AgentMessage>, latestUserMessage: String) -> String {
@@ -181,6 +245,13 @@ final class CursorAgentSession: AgentSession {
         }
     }
 
+    private func captureSessionIdIfPresent(_ json: [String: Any]) {
+        if let sid = json["session_id"] as? String, !sid.isEmpty {
+            remoteSessionId = sid
+            persistStateIfNeeded()
+        }
+    }
+
     private func parseLine(_ line: String) {
         guard let data = line.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
@@ -189,15 +260,18 @@ final class CursorAgentSession: AgentSession {
 
         switch kind {
         case "assistant":
+            captureSessionIdIfPresent(json)
             if let full = Self.extractAssistantText(from: json) {
                 emitAssistantDelta(full)
             }
         case "result":
+            captureSessionIdIfPresent(json)
             let failed = (json["is_error"] as? Bool) == true
             if failed {
                 let msg = (json["result"] as? String) ?? "Request failed"
                 onError?(msg)
                 history.append(AgentMessage(role: .error, text: msg))
+                persistStateIfNeeded()
             } else {
                 if emittedAssistantPrefix.isEmpty,
                    let r = json["result"] as? String,
@@ -208,15 +282,20 @@ final class CursorAgentSession: AgentSession {
                 if !emittedAssistantPrefix.isEmpty {
                     history.append(AgentMessage(role: .assistant, text: emittedAssistantPrefix))
                 }
+                persistStateIfNeeded()
             }
             isBusy = false
             onTurnComplete?()
-        case "thinking", "user", "system":
+        case "system":
+            captureSessionIdIfPresent(json)
+        case "thinking", "user":
             break
         case "error":
+            captureSessionIdIfPresent(json)
             let msg = json["message"] as? String ?? json["error"] as? String ?? "Unknown error"
             onError?(msg)
             history.append(AgentMessage(role: .error, text: msg))
+            persistStateIfNeeded()
         default:
             break
         }
