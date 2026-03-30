@@ -30,7 +30,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        controller?.characters.forEach { $0.session?.terminate() }
+        controller?.characters.forEach { char in
+            WalkerCharacter.persistVisibility(videoName: char.videoName, visible: char.isManuallyVisible)
+            char.session?.terminate()
+        }
     }
 
     // MARK: - Menu Bar
@@ -45,11 +48,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let ui = AppLanguage.current
 
         let char1Item = NSMenuItem(title: "Bruce", action: #selector(toggleChar1), keyEquivalent: "1")
-        char1Item.state = .on
+        char1Item.state = (controller?.characters.first?.isManuallyVisible ?? true) ? .on : .off
         menu.addItem(char1Item)
 
         let char2Item = NSMenuItem(title: "Jazz", action: #selector(toggleChar2), keyEquivalent: "2")
-        char2Item.state = .on
+        char2Item.state = (controller?.characters.count ?? 0) > 1 && (controller?.characters[1].isManuallyVisible ?? true) ? .on : .off
         menu.addItem(char2Item)
 
         menu.addItem(NSMenuItem.separator())
@@ -215,6 +218,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             char.setManuallyVisible(true)
             sender.state = .on
         }
+        WalkerCharacter.persistVisibility(videoName: char.videoName, visible: char.isManuallyVisible)
     }
 
     @objc func toggleChar2(_ sender: NSMenuItem) {
@@ -227,6 +231,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             char.setManuallyVisible(true)
             sender.state = .on
         }
+        WalkerCharacter.persistVisibility(videoName: char.videoName, visible: char.isManuallyVisible)
     }
 
     @objc func toggleDebug(_ sender: NSMenuItem) {

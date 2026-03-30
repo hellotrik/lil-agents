@@ -109,7 +109,29 @@ class WalkerCharacter {
         hostView.layer?.addSublayer(playerLayer)
 
         window.contentView = hostView
-        window.orderFrontRegardless()
+        if Self.loadPersistedVisibility(videoName: videoName) {
+            window.orderFrontRegardless()
+        } else {
+            setManuallyVisible(false)
+        }
+    }
+
+    /// UserDefaults key for menu "Bruce/Jazz" visibility (per character video asset).
+    private static func characterVisibilityDefaultsKey(videoName: String) -> String {
+        "LilAgents.characterVisible.\(videoName)"
+    }
+
+    /// Default visible when the key is absent (first launch).
+    private static func loadPersistedVisibility(videoName: String) -> Bool {
+        let key = characterVisibilityDefaultsKey(videoName: videoName)
+        if UserDefaults.standard.object(forKey: key) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func persistVisibility(videoName: String, visible: Bool) {
+        UserDefaults.standard.set(visible, forKey: characterVisibilityDefaultsKey(videoName: videoName))
     }
 
     // MARK: - Visibility
