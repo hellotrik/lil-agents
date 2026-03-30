@@ -198,8 +198,16 @@ final class CursorAgentSession: AgentSession {
                 let msg = (json["result"] as? String) ?? "Request failed"
                 onError?(msg)
                 history.append(AgentMessage(role: .error, text: msg))
-            } else if !emittedAssistantPrefix.isEmpty {
-                history.append(AgentMessage(role: .assistant, text: emittedAssistantPrefix))
+            } else {
+                if emittedAssistantPrefix.isEmpty,
+                   let r = json["result"] as? String,
+                   !r.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    onText?(r)
+                    emittedAssistantPrefix = r
+                }
+                if !emittedAssistantPrefix.isEmpty {
+                    history.append(AgentMessage(role: .assistant, text: emittedAssistantPrefix))
+                }
             }
             isBusy = false
             onTurnComplete?()
@@ -231,10 +239,8 @@ final class CursorAgentSession: AgentSession {
         if !emittedAssistantPrefix.isEmpty, emittedAssistantPrefix.hasPrefix(full) {
             return
         }
-        if emittedAssistantPrefix.isEmpty {
-            onText?(full)
-            emittedAssistantPrefix = full
-        }
+        onText?(full)
+        emittedAssistantPrefix = full
     }
 
     private static func extractAssistantText(from json: [String: Any]) -> String? {
