@@ -1,5 +1,13 @@
 import AppKit
 
+enum DockOrientation {
+    case bottom
+    case left
+    case right
+    case top
+    case unknown
+}
+
 class LilAgentsController {
     var characters: [WalkerCharacter] = []
     private var displayLink: CVDisplayLink?
@@ -88,19 +96,55 @@ class LilAgentsController {
         debugWindow = win
     }
 
-    private func updateDebugLine(dockX: CGFloat, dockWidth: CGFloat, dockTopY: CGFloat) {
+    private func updateDebugLine(orientation: DockOrientation, travelStart: CGFloat, travelLength: CGFloat, fixedEdge: CGFloat) {
         guard let win = debugWindow, win.isVisible else { return }
-        win.setFrame(CGRect(x: dockX, y: dockTopY, width: dockWidth, height: 2), display: true)
+        switch orientation {
+        case .bottom, .top:
+            win.setFrame(CGRect(x: travelStart, y: fixedEdge, width: travelLength, height: 2), display: true)
+        case .left, .right:
+            win.setFrame(CGRect(x: fixedEdge, y: travelStart, width: 2, height: travelLength), display: true)
+        case .unknown:
+            break
+        }
     }
 
     // MARK: - Dock Geometry
 
-    private func getDockIconArea(screenWidth: CGFloat) -> (x: CGFloat, width: CGFloat) {
+    private func dockOrientation() -> DockOrientation {
+        let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
+        guard let raw = dockDefaults?.object(forKey: "orientation") else { return .bottom }
+
+        // com.apple.dock usually stores it as a string: "bottom" | "left" | "right" | "top"
+        if let s = raw as? String {
+            switch s.lowercased() {
+            case "bottom": return .bottom
+            case "left": return .left
+            case "right": return .right
+            case "top": return .top
+            default: return .unknown
+            }
+        }
+
+        // Fallback: try number mapping if format differs across versions.
+        if let i = raw as? Int {
+            switch i {
+            case 0: return .bottom
+            case 1: return .left
+            case 2: return .right
+            case 3: return .top
+            default: return .unknown
+            }
+        }
+
+        return .bottom
+    }
+
+    private func dockIconTravelLength() -> CGFloat {
         let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
         let tileSize = CGFloat(dockDefaults?.double(forKey: "tilesize") ?? 48)
         // Each dock slot is the icon + padding. The padding scales with tile size.
         // At default 48pt: slot ≈ 58pt. At 37pt: slot ≈ 47pt. Roughly tileSize * 1.25.
-        let slotWidth = tileSize * 1.25
+        let slotLength = tileSize * 1.25
 
         let persistentApps = dockDefaults?.array(forKey: "persistent-apps")?.count ?? 0
         let persistentOthers = dockDefaults?.array(forKey: "persistent-others")?.count ?? 0
@@ -116,21 +160,18 @@ class LilAgentsController {
         // show-recents adds its own divider
         if showRecents && recentApps > 0 { dividers += 1 }
 
-        let dividerWidth: CGFloat = 12.0
-        var dockWidth = slotWidth * CGFloat(totalIcons) + CGFloat(dividers) * dividerWidth
+        let dividerLength: CGFloat = 12.0
+        var dockLength = slotLength * CGFloat(totalIcons) + CGFloat(dividers) * dividerLength
 
         let magnificationEnabled = dockDefaults?.bool(forKey: "magnification") ?? false
-        if magnificationEnabled,
-           let largeSize = dockDefaults?.object(forKey: "largesize") as? CGFloat {
+        if magnificationEnabled, dockDefaults?.object(forKey: "largesize") != nil {
             // Magnification only affects the hovered area; at rest the dock is normal size.
-            // Don't inflate the width — characters should stay within the at-rest bounds.
-            _ = largeSize
+            // Don't inflate the travel length — characters should stay within the at-rest bounds.
         }
 
         // Small fudge factor for dock edge padding
-        dockWidth *= 1.1
-        let dockX = (screenWidth - dockWidth) / 2.0
-        return (dockX, dockWidth)
+        dockLength *= 1.1
+        return dockLength
     }
 
     private func dockAutohideEnabled() -> Bool {
@@ -164,14 +205,37 @@ class LilAgentsController {
         return NSScreen.main
     }
 
-    /// The dock lives on the screen where visibleFrame.origin.y > frame.origin.y (bottom dock)
-    /// On screens without the dock, visibleFrame.origin.y == frame.origin.y
-    private func screenHasDock(_ screen: NSScreen) -> Bool {
-        return screen.visibleFrame.origin.y > screen.frame.origin.y
+    private func screenHasDock(_ screen: NSScreen, dockOrientation: DockOrientation) -> Bool {
+        let f = screen.frame
+        let vf = screen.visibleFrame
+        let eps: CGFloat = 0.5
+
+        switch dockOrientation {
+        case .bottom:
+            // visibleFrame.origin.y lifts above the dock.
+            return vf.origin.y > f.origin.y + eps
+        case .left:
+            return vf.origin.x > f.origin.x + eps
+        case .right:
+            return vf.maxX < f.maxX - eps
+        case .top:
+            // visibleFrame.maxY is reduced by both menu bar and dock (if present).
+            let menuBarThickness = NSStatusBar.system.thickness
+            if menuBarThickness <= 0.5 {
+                return vf.maxY < f.maxY - eps
+            }
+            return vf.maxY < f.maxY - menuBarThickness - 1.0
+        case .unknown:
+            // Conservative fallback: only detect bottom/side docks we can infer safely.
+            return (vf.origin.y > f.origin.y + eps)
+                || (vf.origin.x > f.origin.x + eps)
+                || (vf.maxX < f.maxX - eps)
+        }
     }
 
     private func shouldShowCharacters(on screen: NSScreen) -> Bool {
-        if screenHasDock(screen) {
+        let orientation = dockOrientation()
+        if screenHasDock(screen, dockOrientation: orientation) {
             return true
         }
 
@@ -203,16 +267,35 @@ class LilAgentsController {
         guard let screen = activeScreen else { return }
         guard updateEnvironmentVisibility(for: screen) else { return }
 
-        let screenWidth = screen.frame.width
-        let dockX: CGFloat
-        let dockWidth: CGFloat
-        let dockTopY: CGFloat
+        let orientation = dockOrientation()
+        let travelLength = dockIconTravelLength()
 
         // Dock is on this screen — constrain to dock area
-        (dockX, dockWidth) = getDockIconArea(screenWidth: screenWidth)
-        dockTopY = screen.visibleFrame.origin.y
+        let frame = screen.frame
+        let visible = screen.visibleFrame
 
-        updateDebugLine(dockX: dockX, dockWidth: dockWidth, dockTopY: dockTopY)
+        let travelStart: CGFloat
+        let fixedEdge: CGFloat
+        switch orientation {
+        case .bottom:
+            travelStart = frame.minX + (frame.width - travelLength) / 2.0
+            fixedEdge = visible.origin.y
+        case .top:
+            travelStart = frame.minX + (frame.width - travelLength) / 2.0
+            fixedEdge = visible.maxY
+        case .left:
+            travelStart = frame.minY + (frame.height - travelLength) / 2.0
+            fixedEdge = visible.origin.x
+        case .right:
+            travelStart = frame.minY + (frame.height - travelLength) / 2.0
+            fixedEdge = visible.maxX
+        case .unknown:
+            // Fall back to the historical bottom-dock behavior.
+            travelStart = frame.minX + (frame.width - travelLength) / 2.0
+            fixedEdge = visible.origin.y
+        }
+
+        updateDebugLine(orientation: orientation, travelStart: travelStart, travelLength: travelLength, fixedEdge: fixedEdge)
 
         let activeChars = characters.filter { $0.window.isVisible && $0.isManuallyVisible }
 
@@ -225,7 +308,7 @@ class LilAgentsController {
             }
         }
         for char in activeChars {
-            char.update(dockX: dockX, dockWidth: dockWidth, dockTopY: dockTopY)
+            char.update(dockOrientation: orientation, travelStart: travelStart, travelLength: travelLength, fixedEdge: fixedEdge)
         }
 
         let sorted = activeChars.sorted { $0.positionProgress < $1.positionProgress }

@@ -26,3 +26,4 @@ xcuserdata/
 *.zip
 *.xcworkspace/xcshareddata/swiftpm/
 .derivedData/
+dist/

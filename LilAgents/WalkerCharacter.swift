@@ -83,12 +83,37 @@ class WalkerCharacter {
         playerLayer.backgroundColor = NSColor.clear.cgColor
         playerLayer.frame = CGRect(x: 0, y: 0, width: displayWidth, height: displayHeight)
 
+        // Initial placement is best-effort; final placement will be updated every tick
+        // based on Dock orientation and geometry from `LilAgentsController`.
         let screen = NSScreen.main!
-        let dockTopY = screen.visibleFrame.origin.y
-        let bottomPadding = displayHeight * 0.15
-        let y = dockTopY - bottomPadding + yOffset
+        let orientation = currentDockOrientation()
+        let overlapY = displayHeight * 0.15
+        let overlapX = displayWidth * 0.15
 
-        let contentRect = CGRect(x: 0, y: y, width: displayWidth, height: displayHeight)
+        let initialYCenter = screen.frame.minY + (screen.frame.height - displayHeight) / 2.0
+        let initialXCenter = screen.frame.minX + (screen.frame.width - displayWidth) / 2.0
+
+        let y: CGFloat
+        let x: CGFloat
+        switch orientation {
+        case .bottom:
+            y = screen.visibleFrame.origin.y - overlapY + yOffset
+            x = initialXCenter
+        case .top:
+            y = screen.visibleFrame.maxY - displayHeight + overlapY + yOffset
+            x = initialXCenter
+        case .left:
+            y = initialYCenter + yOffset
+            x = screen.visibleFrame.origin.x - overlapX
+        case .right:
+            y = initialYCenter + yOffset
+            x = screen.visibleFrame.maxX - displayWidth + overlapX
+        case .unknown:
+            y = screen.visibleFrame.origin.y - overlapY + yOffset
+            x = initialXCenter
+        }
+
+        let contentRect = CGRect(x: x, y: y, width: displayWidth, height: displayHeight)
         window = NSWindow(
             contentRect: contentRect,
             styleMask: .borderless,
@@ -880,14 +905,49 @@ class WalkerCharacter {
 
     // MARK: - Frame Update
 
-    func update(dockX: CGFloat, dockWidth: CGFloat, dockTopY: CGFloat) {
-        currentTravelDistance = max(dockWidth - displayWidth, 0)
-        if isIdleForPopover {
-            let travelDistance = currentTravelDistance
-            let x = dockX + travelDistance * positionProgress + currentFlipCompensation + userDragOffsetX
-            let bottomPadding = displayHeight * 0.15
-            let y = dockTopY - bottomPadding + yOffset + userDragOffsetY
+    func update(dockOrientation: DockOrientation, travelStart: CGFloat, travelLength: CGFloat, fixedEdge: CGFloat) {
+        let overlapY = displayHeight * 0.15
+        let overlapX = displayWidth * 0.15
+
+        // Bottom/Top: travel along X; Left/Right: travel along Y.
+        switch dockOrientation {
+        case .bottom, .top:
+            currentTravelDistance = max(travelLength - displayWidth, 0)
+        case .left, .right:
+            currentTravelDistance = max(travelLength - displayHeight, 0)
+        case .unknown:
+            currentTravelDistance = max(travelLength - displayWidth, 0)
+        }
+
+        func setFrameOriginForProgress(_ progress: CGFloat) {
+            let effectiveTravel = currentTravelDistance * progress
+
+            let x: CGFloat
+            let y: CGFloat
+
+            switch dockOrientation {
+            case .bottom:
+                x = travelStart + effectiveTravel + currentFlipCompensation + userDragOffsetX
+                y = fixedEdge - overlapY + yOffset + userDragOffsetY
+            case .top:
+                x = travelStart + effectiveTravel + currentFlipCompensation + userDragOffsetX
+                y = fixedEdge - displayHeight + overlapY + yOffset + userDragOffsetY
+            case .left:
+                y = travelStart + effectiveTravel + yOffset + userDragOffsetY
+                x = fixedEdge - overlapX + currentFlipCompensation + userDragOffsetX
+            case .right:
+                y = travelStart + effectiveTravel + yOffset + userDragOffsetY
+                x = fixedEdge - displayWidth + overlapX + currentFlipCompensation + userDragOffsetX
+            case .unknown:
+                x = travelStart + effectiveTravel + currentFlipCompensation + userDragOffsetX
+                y = fixedEdge - overlapY + yOffset + userDragOffsetY
+            }
+
             window.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+
+        if isIdleForPopover {
+            setFrameOriginForProgress(positionProgress)
             updatePopoverPosition()
             updateThinkingBubble()
             return
@@ -899,11 +959,7 @@ class WalkerCharacter {
             if now >= pauseEndTime {
                 startWalk()
             } else {
-                let travelDistance = max(dockWidth - displayWidth, 0)
-                let x = dockX + travelDistance * positionProgress + currentFlipCompensation + userDragOffsetX
-                let bottomPadding = displayHeight * 0.15
-                let y = dockTopY - bottomPadding + yOffset + userDragOffsetY
-                window.setFrameOrigin(NSPoint(x: x, y: y))
+                setFrameOriginForProgress(positionProgress)
                 return
             }
         }
@@ -913,11 +969,11 @@ class WalkerCharacter {
             let videoTime = min(elapsed, videoDuration)
             let travelDistance = currentTravelDistance
 
-            // Interpolate in pixel space for consistent speed across screen changes
+            // Interpolate in pixel space for consistent speed across screen changes.
             let walkNorm = elapsed >= videoDuration ? 1.0 : movementPosition(at: videoTime)
             let currentPixel = walkStartPixel + (walkEndPixel - walkStartPixel) * walkNorm
 
-            // Convert pixel position back to progress for the current screen
+            // Convert pixel position back to progress for the current screen.
             if travelDistance > 0 {
                 positionProgress = min(max(currentPixel / travelDistance, 0), 1)
             }
@@ -928,13 +984,37 @@ class WalkerCharacter {
                 return
             }
 
-            let x = dockX + travelDistance * positionProgress + currentFlipCompensation + userDragOffsetX
-            let bottomPadding = displayHeight * 0.15
-            let y = dockTopY - bottomPadding + yOffset + userDragOffsetY
-            window.setFrameOrigin(NSPoint(x: x, y: y))
+            setFrameOriginForProgress(positionProgress)
         }
 
         updateThinkingBubble()
+    }
+
+    private func currentDockOrientation() -> DockOrientation {
+        let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
+        guard let raw = dockDefaults?.object(forKey: "orientation") else { return .bottom }
+
+        if let s = raw as? String {
+            switch s.lowercased() {
+            case "bottom": return .bottom
+            case "left": return .left
+            case "right": return .right
+            case "top": return .top
+            default: return .unknown
+            }
+        }
+
+        if let i = raw as? Int {
+            switch i {
+            case 0: return .bottom
+            case 1: return .left
+            case 2: return .right
+            case 3: return .top
+            default: return .unknown
+            }
+        }
+
+        return .bottom
     }
 }
 
